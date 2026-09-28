@@ -723,6 +723,7 @@ internal fun StreamControlsPanel(
     onSteamMenuOpen: () -> Unit,
     onControllerMouseAssistToggle: () -> Unit,
     onControllerMouseEmulationToggle: () -> Unit,
+    onToggleRecording: () -> Unit,
     onExit: () -> Unit,
     onTouchControlsToggle: () -> Unit,
     onMousePadToggle: () -> Unit,
@@ -1273,6 +1274,17 @@ internal fun StreamControlsPanel(
             }
             item {
                 ControlSection(stringResource(R.string.stream_panel_section_input)) {
+                    val isRecording by StreamRecordService.isRecordingFlow.collectAsStateWithLifecycle()
+
+ControlActionRow(
+    label = if (isRecording) "🔴 Perekaman Aktif" else "Rekam Layar (Recorder)",
+    actionLabel = if (isRecording) "Berhenti" else "Mulai Rekam",
+    value = if (isRecording) "Menyimpan ke Movies/OpenNOW" else "Siap rekam 60fps",
+    onClick = {
+        onButtonTone()
+        onToggleRecording()
+    },
+)
                     if (microphoneRequested) {
                         ControlSwitchRow(
                             label = stringResource(R.string.stream_panel_microphone),

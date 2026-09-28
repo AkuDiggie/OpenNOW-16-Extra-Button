@@ -21,10 +21,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Accept SDK Licenses & Install NDK / CMake
+      - name: Accept SDK Licenses & Install NDK / CMake 3.22.1
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+          # Hapus atau sembunyikan cmake 4.x agar tidak terpilih oleh build_nvst.py
+          rm -rf $ANDROID_HOME/cmake/4* || true
 
       - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -37,6 +39,9 @@ jobs:
       - name: Build Android APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          CMAKE: ${{ env.ANDROID_HOME }}/cmake/3.22.1/bin/cmake
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          PATH: ${{ env.ANDROID_HOME }}/cmake/3.22.1/bin:${{ env.PATH }}
         run: |
           cd android
           ./gradlew :app:assembleDebug --stacktrace

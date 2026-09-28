@@ -2,7 +2,9 @@ package com.opencloudgaming.opennow
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -43,6 +45,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
@@ -118,31 +121,33 @@ internal fun StreamScreen(
     var exitConfirmOpen by remember { mutableStateOf(false) }
     var keyboardOpen by remember { mutableStateOf(false) }
     var keyboardValue by remember(session?.sessionId) { mutableStateOf(TextFieldValue()) }
-    val recordLauncher = rememberLauncherForActivityResult(
-    ActivityResultContracts.StartActivityForResult()
-) { result ->
-    if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-        val displayMetrics = context.resources.displayMetrics
-        val screenWidth = displayMetrics.widthPixels
-        val screenHeight = displayMetrics.heightPixels
-        val dpi = displayMetrics.densityDpi
 
-        StreamRecordService.start(
-            context = context,
-            resultCode = result.resultCode,
-            data = result.data!!,
-            width = screenWidth,
-            height = screenHeight,
-            dpi = dpi
-        )
+    val recordLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val displayMetrics = context.resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+            val dpi = displayMetrics.densityDpi
+
+            StreamRecordService.start(
+                context = context,
+                resultCode = result.resultCode,
+                data = result.data!!,
+                width = screenWidth,
+                height = screenHeight,
+                dpi = dpi
+            )
+        }
     }
+
     var keyboardSyncedText by remember(session?.sessionId) { mutableStateOf<String?>(null) }
     var audioMuted by remember { mutableStateOf(false) }
     var touchLayoutEditing by remember { mutableStateOf(false) }
     var streamGuideOpen by remember(session?.sessionId) { mutableStateOf(false) }
     var streamGuideStep by remember(session?.sessionId) { mutableStateOf(StreamGuideStep.OpenControls) }
     var statsVisible by remember(state.settings.showStatsOnLaunch) { mutableStateOf(state.settings.showStatsOnLaunch) }
-    // Bitrate ceiling (kbps) the live session is currently capped at; mirrors client.liveBitrateLimitKbps.
     var liveBitrateLimitKbps by remember(session?.sessionId) { mutableStateOf<Int?>(null) }
     var streamStats by remember { mutableStateOf(StreamRuntimeStats()) }
     var networkNotice by remember(session?.sessionId) { mutableStateOf<StreamNetworkWarning?>(null) }
@@ -194,8 +199,6 @@ internal fun StreamScreen(
         mutableStateOf<StreamInputModePrompt?>(null)
     }
     val inputModePromptGate = remember(session?.sessionId) { StreamInputModePromptGate() }
-    // Native game touch and the virtual controller need exclusive ownership of the same fingers.
-    // Catalog touch remains the default, while a player's in-session controller choice wins.
     val nativeTouchActive = !tvProfile && shouldUseNativeTouchForStream(
         state.settings.androidTouch.effectiveNativeTouchMode(),
         game,
@@ -223,9 +226,6 @@ internal fun StreamScreen(
         audioController.playButtonTone(buttonToneEnabled)
     }
     val launchStreamSettings = state.activeStreamSettings ?: state.settings.stream
-    // activeStreamSettings tracks the transport profile and can deliberately
-    // change during safe-codec recovery. Keep the original launch profile so
-    // requested, server-selected, decoded, and recovery modes remain distinct.
     val requestedStreamSettings = remember(session?.sessionId) {
         state.settings.stream.eligibleForAndroidLaunch(
             subscriptionInfo = state.subscriptionInfo,
@@ -288,9 +288,6 @@ internal fun StreamScreen(
     }
     val openControls = { origin: String ->
         NativeInputDiagnostics.addRetained("stream.controls.open", "stream controls open origin=$origin")
-        // Claim UI routing before Compose replaces the launcher with the panel. Waiting for the
-        // keyed effect below leaves a short window where native touch can forward the activating
-        // gesture into the game or retarget its trailing event into the newly opened menu.
         NativeStreamInputRouter.setStreamUiActive(true)
         keyboardOpen = false
         exitConfirmOpen = false
@@ -420,9 +417,6 @@ internal fun StreamScreen(
         NativeStreamInputRouter.setStreamMenuShortcut(state.settings.streamMenuShortcut)
     }
 
-    // StreamScreen owns the effective controller/mouse modes even when TouchOverlay is absent.
-    // Re-sync on every session so closeTransport(clearInputState=false) cannot carry stale virtual
-    // controller presence into a Finger Mouse-only session.
     LaunchedEffect(client, session?.sessionId, touchControlsVisible) {
         client.setVirtualControllerVisible(touchControlsVisible)
         NativeStreamInputRouter.setTouchControllerVisible(touchControlsVisible)
@@ -485,8 +479,6 @@ internal fun StreamScreen(
         if (!keyboardMouseBaselineCaptured) {
             keyboardMouseBaselineCaptured = true
             previousKeyboardMouseConnected = physicalKeyboardMouseConnected
-            // The pre-launch choice already provisioned the host. Do not override it merely
-            // because the mouse that triggered that choice is still attached.
             return@LaunchedEffect
         }
         if (physicalKeyboardMouseConnected == previousKeyboardMouseConnected) {
@@ -553,15 +545,10 @@ internal fun StreamScreen(
         }
     }
 
-    // Also gated on nativeTouchActive: dispatchTouch would take the native branch first anyway, but
-    // leaving two input modes both flagged "enabled" is how they end up fighting later.
     LaunchedEffect(streamReady, touchInputEnabled, state.settings.androidTouch.mousePad, nativeTouchActive) {
         NativeStreamInputRouter.setTouchMouseEnabled(touchMouseActive)
         client.setTouchMouseEnabled(touchMouseActive)
     }
-    // Gated on touchInputEnabled as well as the setting: finger touches already stop at
-    // setTouchMouseEnabled during PiP, but external mouse and touchpad events reach direct click
-    // through their own path and would otherwise be mapped against the tiny PiP window.
     LaunchedEffect(state.settings.androidTouch.mouseDirectClick, touchInputEnabled) {
         NativeStreamInputRouter.setMouseDirectClick(
             state.settings.androidTouch.mouseDirectClick && touchInputEnabled,
@@ -577,8 +564,6 @@ internal fun StreamScreen(
         val activeGame = state.streamGame
         val enabled = streamReady && touchInputEnabled && nativeTouchActive
         NativeStreamInputRouter.setNativeTouchEnabled(enabled)
-        // Records what the catalog says about this game even when we leave touch off, so the fixed
-        // list in NativeTouchGames.kt can be filled in — and eventually retired — from real data.
         if (activeGame != null && streamReady) {
             NativeInputDiagnostics.add(
                 nativeTouchDiagnostics(
@@ -623,8 +608,6 @@ internal fun StreamScreen(
                 mode = launchStreamSettings.microphoneMode,
                 permissionGranted = microphonePermissionGranted,
             )
-            // Promote the already-running stream service while the activity is visible and before
-            // WebRTC opens AudioRecord. Android 14+ rejects that promotion from the background.
             onMicrophoneCaptureActiveChange(captureMicrophone)
             microphoneEnabled = captureMicrophone
             client.setMicrophoneEnabled(captureMicrophone)
@@ -771,9 +754,6 @@ internal fun StreamScreen(
                     client = client,
                     inputResetKey = streamState,
                     touch = state.settings.androidTouch.copy(enabled = true),
-                    // FLAG_IGNORE_GLOBAL_SETTING stopped working in Android 13, so the on-screen
-                    // buttons went silent on any device with system touch feedback off. Drive the
-                    // vibrator directly instead — see OpenNowHaptics.
                     onButtonTone = { openNowHaptics?.play(HapticCue.Activate) },
                     layoutEditing = touchLayoutEditing,
                     onButtonAppearanceChange = { button, appearance ->
@@ -828,7 +808,7 @@ internal fun StreamScreen(
                             if (event.action == MotionEvent.ACTION_UP ||
                                 event.action == MotionEvent.ACTION_DOWN
                             ) {
-                                false // let Button's click handling still work
+                                false
                             } else {
                                 false
                             }
@@ -902,14 +882,6 @@ internal fun StreamScreen(
                     prompt = prompt,
                     onStay = { inputModePromptOpen = null },
                     onSwitch = {
-                    onToggleRecording = {
-    if (StreamRecordService.isRecordingFlow.value) {
-        StreamRecordService.stop(context)
-    } else {
-        val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        recordLauncher.launch(projectionManager.createScreenCaptureIntent())
-    }
-},
                         streamInputMode = when (prompt) {
                             StreamInputModePrompt.SwitchToKeyboardMouse -> StreamInputMode.KeyboardMouse
                             StreamInputModePrompt.SwitchToNativeTouch -> StreamInputMode.NativeTouch
@@ -918,9 +890,6 @@ internal fun StreamScreen(
                     },
                 )
             }
-            // Keep the decoded frame untouched when the Quick Menu is open. A full-screen
-            // translucent wash over SurfaceViewRenderer looked like a stuck grey compositor
-            // layer on physical devices; the panel has its own opaque fill and border.
             AnimatedVisibility(
                 visible = controlsOpen,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it / 4 }) + scaleIn(initialScale = 0.96f),
@@ -1048,8 +1017,6 @@ internal fun StreamScreen(
                                 }
                             }
                             preferVirtualController && nativeTouchAvailable && touchControlsVisible -> {
-                                // Turning the overlay back off restores the game's built-in touch
-                                // without changing the player's persisted controller preference.
                                 preferVirtualController = false
                             }
                             physicalControllerConnected && !touchControlsVisible -> {
@@ -1172,11 +1139,7 @@ internal fun StreamScreen(
                     },
                     onMaxBitrateChange = { value ->
                         viewModel.updateStreamSettings { s -> s.copy(maxBitrateMbps = value) }
-                        // Preserve the active WSS/ICE transport. The new b=AS ceiling is queued for
-                        // the next legitimate offer because replacing a healthy transport here can
-                        // strand the allocated cloud session on a stale signaling endpoint.
                         client.updateBitrateLimit(value * 1000)
-                        // Optimistic indicator for the requested next-offer ceiling.
                         liveBitrateLimitKbps = value * 1000
                     },
                     onTouchScaleChange = { value ->
@@ -1221,6 +1184,14 @@ internal fun StreamScreen(
                     },
                     onTouchSettingsChange = { touch ->
                         viewModel.updateSettings(state.settings.copy(androidTouch = touch))
+                    },
+                    onToggleRecording = {
+                        if (StreamRecordService.isRecordingFlow.value) {
+                            StreamRecordService.stop(context)
+                        } else {
+                            val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                            recordLauncher.launch(projectionManager.createScreenCaptureIntent())
+                        }
                     },
                     onBugReportSubmit = { title, description, knownIssueOverrideKey, details, files ->
                         viewModel.submitBugReport(title, description, knownIssueOverrideKey, details, files)
@@ -1479,21 +1450,15 @@ private fun StreamVideoSurface(
     val rendererModifier = if (viewportAspectRatio <= 0f) {
         Modifier.fillMaxSize()
     } else if (viewportAspectRatio > streamAspectRatio) {
-        // Screen is wider than stream (e.g. 2400×1080 screen, 1920×1080 stream).
-        // Fit by height so the renderer has no black bars internally; horizontal
-        // stretch (if enabled) is applied later via View.scaleX.
         Modifier
             .fillMaxHeight()
             .aspectRatio(streamAspectRatio)
     } else {
-        // Screen is taller than stream — fit by width; vertical stretch via scaleY.
         Modifier
             .fillMaxWidth()
             .aspectRatio(streamAspectRatio)
     }
 
-    // SCALE_ASPECT_FIT preserves every decoded pixel. Stretching the View on only
-    // the mismatching axis removes the bars without cropping HUD or edge content.
     val stretchScale = remember(stretchToFit, viewportAspectRatio, stretchContentAspectRatio) {
         streamStretchScale(
             enabled = stretchToFit,
@@ -1585,11 +1550,6 @@ private fun StreamVideoSurface(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            // The sharpness drawer is always attached (Streaming.kt createRenderer), so toggling
-            // sharpening mid-session is handled entirely by the update lambda below via
-            // applyLiveSettings → drawer.amount. Re-keying this AndroidView on that flag used to
-            // tear down and recreate the SurfaceViewRenderer on every toggle, causing a visible
-            // restart/flicker of the video surface.
             AndroidView(
                 modifier = rendererModifier,
                 factory = { ctx ->
@@ -1639,9 +1599,6 @@ private fun StreamVideoSurface(
                 zoomOffset = if (nextScale <= 1.001f) {
                     Offset.Zero
                 } else {
-                    // Keep the content under the pinch centroid anchored while scaling, then
-                    // apply the fingers' pan. Scaling around the viewport centre without this
-                    // correction makes an off-centre zoom appear to slide away from the user.
                     val focalCorrection =
                         (centroid - viewportCenter) * (1f - appliedScaleChange)
                     clampStreamZoomOffset(
@@ -1789,9 +1746,6 @@ private fun FingerMouseInputLayer(
                     return@pointerInteropFilter NativeStreamInputRouter.dispatchTouch(event, width, height)
                 }
                 if (event.pointerCount >= 2) {
-                    // 3-finger touch is reserved for the Direct Click toggle gesture
-                    // (handled in NativeStreamInputRouter.dispatchTouch). Do not
-                    // interpret it as a pinch-zoom — reset pinch state and let it through.
                     if (event.pointerCount >= 3) {
                         pinchActive = false
                         lastPinchDistance = 0f
@@ -1801,8 +1755,6 @@ private fun FingerMouseInputLayer(
                     }
                     NativeStreamInputRouter.cancelTouchMouse()
                     if (!pinchZoomEnabled) {
-                        // Multiple fingers while the touch controller is visible are
-                        // controller input, not a request to crop the video surface.
                         pinchActive = true
                         lastPinchDistance = 0f
                         lastPinchCentroid = Offset.Zero

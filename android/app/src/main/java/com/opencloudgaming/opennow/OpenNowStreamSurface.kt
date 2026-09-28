@@ -118,6 +118,24 @@ internal fun StreamScreen(
     var exitConfirmOpen by remember { mutableStateOf(false) }
     var keyboardOpen by remember { mutableStateOf(false) }
     var keyboardValue by remember(session?.sessionId) { mutableStateOf(TextFieldValue()) }
+    val recordLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+) { result ->
+    if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+        val displayMetrics = context.resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+        val dpi = displayMetrics.densityDpi
+
+        StreamRecordService.start(
+            context = context,
+            resultCode = result.resultCode,
+            data = result.data!!,
+            width = screenWidth,
+            height = screenHeight,
+            dpi = dpi
+        )
+    }
     var keyboardSyncedText by remember(session?.sessionId) { mutableStateOf<String?>(null) }
     var audioMuted by remember { mutableStateOf(false) }
     var touchLayoutEditing by remember { mutableStateOf(false) }
@@ -884,6 +902,14 @@ internal fun StreamScreen(
                     prompt = prompt,
                     onStay = { inputModePromptOpen = null },
                     onSwitch = {
+                    onToggleRecording = {
+    if (StreamRecordService.isRecordingFlow.value) {
+        StreamRecordService.stop(context)
+    } else {
+        val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        recordLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+},
                         streamInputMode = when (prompt) {
                             StreamInputModePrompt.SwitchToKeyboardMouse -> StreamInputMode.KeyboardMouse
                             StreamInputModePrompt.SwitchToNativeTouch -> StreamInputMode.NativeTouch

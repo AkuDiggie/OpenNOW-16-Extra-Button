@@ -1,10 +1,10 @@
 name: Build OpenNOW Android APK
 
 on:
-  workflow_dispatch: # Bisa di-trigger manual lewat tombol Run workflow
+  workflow_dispatch:
   push:
     branches:
-      - android-native # Atau ganti nama branch fork Anda
+      - android-native
 
 jobs:
   build:
@@ -16,17 +16,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android NDK & SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK & CMake
+      - name: Accept SDK Licenses & Install NDK / CMake
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
 
       - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -38,7 +36,7 @@ jobs:
 
       - name: Build Android APK
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-android.outputs.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: |
           cd android
           ./gradlew :app:assembleDebug --stacktrace

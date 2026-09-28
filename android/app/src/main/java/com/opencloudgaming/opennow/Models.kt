@@ -533,7 +533,7 @@ data class AndroidTouchSettings(
     }
 }
 
-internal const val TOUCH_EXTRA_BUTTON_COUNT = 8
+internal const val TOUCH_EXTRA_BUTTON_COUNT = 16
 
 internal const val DEFAULT_CATALOG_SORT_ID = "most_popular"
 internal const val NEWLY_ADDED_CATALOG_SORT_ID = "last_added"

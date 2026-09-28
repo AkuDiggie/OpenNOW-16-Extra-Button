@@ -1,0 +1,51 @@
+name: Build OpenNOW Android APK
+
+on:
+  workflow_dispatch: # Bisa di-trigger manual lewat tombol Run workflow
+  push:
+    branches:
+      - android-native # Atau ganti nama branch fork Anda
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android NDK & SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK & CMake
+        run: |
+          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-android.outputs.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          cd android
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenNOW-Android-16Buttons
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
